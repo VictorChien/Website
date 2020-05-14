@@ -1,0 +1,253 @@
+---
+title: "COVID-19"
+author: "Victor Chien"
+date: "3/15/2020"
+output: pdf_document
+---
+
+``````{r setup, include=FALSE}
+library(knitr)
+knitr::opts_chunk$set(echo = TRUE, eval = TRUE, fig.align = "center", warning = F, message = F,
+tidy=TRUE, tidy.opts=list(width.cutoff=60), R.options=list(max.print=100))
+```
+
+
+# Introduction
+
+The following datasets are on the 2019 novel coronavirus. Since being named COVID-19 by the WHO, it has been declared a pandemic by the WHO and a national emergency by the United States. Daily confirmed cases and deaths by country and by date has been consolidated by the European Centre for Disease Prevention and Control and can be found using the following link: https://www.ecdc.europa.eu/en/publications-data/download-todays-data-geographic-distribution-covid-19-cases-worldwide. The data used for this project has been updated as of March 15, 2020.
+
+A dataset for each country's longitude and latitude has been found and is named "location". The dataset "gdp" contains each country's GDP up to 2018 and is used to generalize the current GDP of that country. The dataset "population" contains each country's population up to 2018. Both "gdp" and "population" have been fixed to contain only the most recent value available. 
+
+We may expect that countries with lower economic status are less apt to deal with an epidemic. Lower economic status can be reflected both by GDP and GDP per capita. Conversely, we should expect that countries with higher populations and countries that are closer to the origin of the virus (China) are having a harder time containing the virus. We can measure the growth of the virus by looking at cumulative cases, growth factor, and mortality rate.
+
+The global pandemic situation is developing as this report is being written so new data will reveal trends not easily seen at this time. There are countries, such as China, whose growth factors are decreasing and the virus is actually in decline, while there are countries with only 1 or 2 confirmed cases that have yet to show any exponential growth.
+
+
+# TIDYING: REARRANGING WIDE/LONG
+
+```{R}
+library("readxl") #reading excel sheets of datasets
+covid <- read_excel("C:\\Users\\Victor Chien\\Documents\\University of Texas at Austin\\Junior\\SDS 348 Computational Bio & Bioinformatics\\COVID-19_2020-03-15.xlsx")
+location <- read_excel("C:\\Users\\Victor Chien\\Documents\\University of Texas at Austin\\Junior\\SDS 348 Computational Bio & Bioinformatics\\Country_Location.xlsx")
+gdp <- read_excel("C:\\Users\\Victor Chien\\Documents\\University of Texas at Austin\\Junior\\SDS 348 Computational Bio & Bioinformatics\\Country_GDP.xlsx")
+population <- read_excel("C:\\Users\\Victor Chien\\Documents\\University of Texas at Austin\\Junior\\SDS 348 Computational Bio & Bioinformatics\\Country_Population.xlsx")
+
+library("tidyverse")
+
+#fixing gdp dataset
+gdp_tidy <- gdp %>% group_by(`Country Code`) %>%
+  select(`Country Code`,"2000":"2018") %>% 
+  pivot_longer(cols = "2000":"2018", names_to = "Year", values_to = "GDP") %>% 
+  na.omit() %>% #omit years with NAs to get the latest GDP
+  group_by(`Country Code`) %>%
+  mutate(Year = as.integer(Year)) %>%
+  filter(Year == max(Year)) #finding the latest GDP 
+
+#fixing population dataset
+pop_tidy <- population %>%
+  select(`Country Code`,"2018")
+names(pop_tidy)[2] <- "Population"
+
+```
+
+The gdp and population datasets were not tidy. Pivot_longer was used to create a new column, years, with the corresponding gdp value in the values column. Rows with NAs were removed at this step to ensure no NAs in the tidy dataset. The dataset was then filtered to the most recent year and GDP. Because the population dataset had a value for each country in the most recent documented year, 2018, that column was selected along with the country name to create the tidy population dataset. 
+
+
+# JOINING/MERGING
+
+```{R}
+code <- read_excel("C:\\Users\\Victor Chien\\Documents\\University of Texas at Austin\\Junior\\SDS 348 Computational Bio & Bioinformatics\\Country_Code.xlsx")
+
+merged <- covid %>%
+  left_join(code, by = c("GeoId" = "Alpha-2 code")) %>%
+  left_join(location, by = c("GeoId" = "country")) %>% 
+  left_join(gdp_tidy, by = c("Alpha-3 code" = "Country Code")) %>% 
+  left_join(pop_tidy, by = c("Alpha-3 code" = "Country Code"))
+merged <- merged %>% select(-GeoId,-Country, -`Alpha-3 code`, -Numeric, -name, -Year) 
+#unnecessary/redundant variables
+
+glimpse(merged)
+
+```
+
+The dataset "code" contains 2 letter and 3 letter country codes in separate columns as well as the name of the country. This has been used to merge all datasets together, some of which utilize 2 letter codes and others which use 3 letter codes. 
+
+The merged dataset contains daily statistics with new confirmed cases and new deaths of COVID-19 as well as descriptive statistics of the country in which infection occured. Country codes and years of the gdp recordings have been unselected for simplicity. Most gdp calculations come from 2018 and it can be assumed that this is an appropriate metric for current GDP. 
+
+I decided to left_join() all datasets into the "covid" dataset taken from the European Centre for Disease Prevention and Control's website because that ultimately contains all of the most important data measured daily. Care had to be taken to join by the correct variation of country code. No rows were dropped, however some country names/codes were corrected to facilitate the join.  
+
+# WRANGLING
+
+```{r}
+#install.packages("geosphere")
+library(geosphere)
+library(purrr)
+merged2 <- merged   %>% arrange(CountryExp,DateRep) %>% group_by(CountryExp) %>%
+  mutate(cum_cases = cumsum(NewConfCases), 
+         cum_deaths = cumsum(NewDeaths), 
+         prop_infect = cum_cases/Population, 
+         prop_suscep = 1 - prop_infect, 
+         growthFactor = round(lead(NewConfCases)/NewConfCases, 4),
+         mortality_percent = (cum_deaths/cum_cases)*100
+         )
+
+merged2 <- merged2 %>% ungroup() %>%         
+  mutate(distFromChina = pmap_dbl(.,~distm(x=c(104.19540,35.86166),y=c(..6,..5),fun=distHaversine)),
+         gdpPerCapita = GDP/Population)
+
+is.na(merged2) <- sapply(merged2, is.infinite) #replace inf with NA
+merged2[is.na(merged2)] <- 0 #replace NaN and NA with 0
+
+
+```
+
+A separate column has been created for the cumulative number of cases, cumulative number of deaths for each country. The Growth Factor has been calculated by taking the number of new cases one day divided by the number of new cases the day prior. Mortality rate as a percentage is calculated by taking cumulative deaths divided by cumulative cases multiplied by 100 for any given day. The distance from the virus' origin (China) has been calculated using the distHaversine() formula. All inf, NaN, and NA within the growthFactor variable (caused by issues dividing by 0) have been replaced with 0.
+
+Growth factor is an important variable to calculate because a value less than 1 indicates that the logistic curve has reached its point of inflection. Because the virus has only recently reached worldwide attention, the growth factor for many countries will be greater than 1 for a while before decreasing. 
+
+
+```{r}
+#SUMMARY STATISTICS
+#ungrouped
+options(scipen = 0)
+merged2 %>% summarise("Distinct Countries" = n_distinct(CountryExp),
+                      "Number of Days" = n_distinct(DateRep),
+                      "Max New Cases in a Day" = max(NewConfCases),
+                      "Max Deaths in a Day" = max(NewDeaths),
+                      "Mean GDP" = mean(GDP),
+                      "Standard Deviation of GDP" = sd(GDP),
+                      "Mean GDP per Capita" = mean(gdpPerCapita),
+                      "Standard Deviation of GDP per Capita" = sd(gdpPerCapita),
+                      "Min GDP" = min(GDP),
+                      "Max GDP"= max(GDP),
+                      "Min GDP per Capita" = min(gdpPerCapita),
+                      "Max GDP per Capita" = max(gdpPerCapita),
+                      "Total Population" = sum(unique(Population)),
+                      "Total Cases" = sum(NewConfCases),
+                      "Total Deaths" = sum(NewDeaths),
+                      "Global Mortality" = sum(NewDeaths)/sum(NewConfCases)*100
+                      ) %>% t()
+                      
+                      
+
+#grouped by Country - only using growth factors > 0 for the countries with more than 245 cases
+merged2 %>% group_by(CountryExp) %>% filter(max(cum_cases) > 245) %>% filter(growthFactor > 0) %>% 
+  summarise("Max Growth Factor" = max(growthFactor),
+            "Mean Growth Factor" = mean(growthFactor),
+            "Cumulative Cases" = max(cum_cases),
+            "Mortality Rate" = last(mortality_percent),
+            "Days Since First Positive" = n()
+            )
+                                               
+                                               
+                                               
+  
+
+
+```
+
+Two types of summary statistics have been calculated. The first type is ungrouped and the second type is grouped by country. It makes the most sense to find maximum growth factor, mean growth factor, cumulative cases, mortality rate, and days since first infection grouped for each country as opposed to all countries because grouping tell us how each country is doing. For example, it seems that Qatar has the highest maximum and mean growth factor. This could likely be due to Qatar's recent exposure to the virus (10 days) and subsequent frenzy to test as many people as quickly as possible leading to a huge increase in confirmed cases that is not necessarily representative of the virus' foothold in the country. In China, although the number of cumulative cases is the highest out of any country, the country has had confirmed cases for 58 days. At this time, the number of new confirmed cases in China has decreased significantly. 
+
+*Note: The chart above contains only the top 20 countries.*
+
+
+
+
+# Visualizing
+
+```{r}
+library(ggplot2)
+library(reshape2)
+#one country per row
+correlation <- merged2 %>% filter(DateRep == max(DateRep))  %>% 
+  select(-DateRep,-CountryExp,-NewConfCases,-NewDeaths,-growthFactor) %>% 
+  cor() %>% round(4)
+correlation
+
+melted <- melt(correlation)
+ggplot(melted, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile() +
+  theme(axis.text.x = element_text(angle=90, vjust = 0.3)) +
+  scale_fill_gradient2(low="dark red",mid="white",high="dark violet")+ 
+  coord_fixed()
+
+
+#one date per row (duplicates for country stats)
+merged2 %>% select(NewConfCases,NewDeaths,growthFactor,distFromChina,mortality_percent) %>% 
+  cor() %>% round(4) 
+#this tells us that growthFactor is not correlated with NewConfCases, NewDeaths, or distFromChina
+#correlation matrix will not be used in heatmap because it is insignificant
+
+
+```
+
+A correlation table and heatmap have been made for each numeric variable. Unfortunately, it would seem that none of the associations are significant. We are most interested in the variables gdpPerCapita and distFromChina and how they affect mortality_percent, cum_deaths, and cum_cases. Latitude and Longitude are somewhat redundant because they are used to calculate distFromChina and may not be the best variables to use because the Earth has vast oceans on which countries cannot settle. The only one we see correlated of the most interesting variables is the slightly negative correlation between mortality_percent and gdpPerCapita. It is to be expected that countries with low GDP per capita have a higher mortality rate, however, given that the virus kills people of different ages disproportionately, the GDP per capita may not be the cause of this very slight correlation. 
+
+We see that there is a correlation between Population and each GDP, cum_cases, and cum_deaths. However, because the virus started in a country with a large population and many of the recorded cases and deaths are currently in China, we can attribute some of this correlation to the uneven weight of China's large population and consequent large GDP.
+
+
+
+```{r}
+merged2 %>% group_by(CountryExp) %>% filter(sum(NewConfCases) > 245) %>%
+  ggplot(aes(x = DateRep, y = cum_cases, color = mortality_percent)) +
+  geom_path() + 
+  facet_wrap(~CountryExp, scales = "free_y") +
+  theme(axis.text.x = element_text(angle=90, vjust = 0.3), axis.title.y = element_text(angle=90)) +
+  ggtitle("COVID-19 Infection by Country") + ylab("Cases") + xlab("Month") +
+  scale_color_gradient(low = "blue",high = "red",  limits = c(0,6), name = "Mortality Percent")
+
+
+```
+
+Here is a graphic of the number of confirmed cases as a function of time for the top 20 countries with the highest number of cases number of cases. Mortality percent has been overlayed as a color gradient. As shown in the graphic, there are countries such as Germany, Denmark, and Norway with few confirmed deaths even though they have hundreds or thousands of cases. Most countries are in the exponential phase. China is the only country with cases beginning to level out. 
+
+
+```{r}
+merged2 %>% group_by(CountryExp) %>% filter(max(cum_cases) > 245) %>% filter(growthFactor > 0) %>% 
+  ggplot(aes(x = CountryExp, y = growthFactor, fill = gdpPerCapita)) +
+  geom_bar(stat = "summary", fun.y = "mean") +
+  geom_errorbar(stat = "summary", width=.4) +
+  theme_dark() +
+  theme(axis.text.x = element_text(angle=90, vjust = 0.3)) +
+  scale_y_continuous(breaks = seq(0,5.5,0.5)) +
+  scale_fill_gradient(low = "dark green", high = "green", limits = c(0,100000)) +
+  ggtitle("COVID-19 Growth Factors") + ylab("Mean Growth Factor") + xlab("Country")
+```
+
+The Mean Growth Factor has been graphed for each country and the GDP per capita of each country is overlayed as the filled color of the bar. Our expected association that a higher GDP translates to a lower Mean Growth Factor is false. It is possible that not enough data has been collected yet and each country is only now figuring out how to deal with the virus, however, it seems that each country is being hit with the virus indiscriminately. 
+
+# Dimensionality Reduction
+
+```{r}
+library(cluster)
+#creating a numeric dataset of only cum_cases and distFromChina
+num_data <- merged2 %>% filter(DateRep == max(DateRep))  %>% select(cum_cases,distFromChina) 
+sil_width<-vector() #empty vector to hold mean sil width
+for(i in 2:10){
+kms <- kmeans(num_data,centers=i) #compute k-means solution
+sil <- silhouette(kms$cluster,dist(num_data)) #get sil widths
+sil_width[i]<-mean(sil[,3]) #take averages (higher is better)
+}
+ggplot() + geom_line(aes(x=1:10,y=sil_width)) + scale_x_continuous(name="k",breaks=1:10) 
+#4 clusters is optimal
+
+
+kmeans1 <- num_data %>% scale() %>% kmeans(4) #set number of clusters k to 4
+kmeansclust <- num_data %>% mutate(cluster=as.factor(kmeans1$cluster)) #adding cluster assignment to df
+kmeansclust %>% ggplot(aes(cum_cases,distFromChina, color=cluster)) + geom_point() + #plotting distance from china 
+  ggtitle("k-Means Clustering") + ylab("Distance from China") + xlab("Cases") +
+  scale_x_continuous(trans='log10')
+
+```
+
+The data plotted represents four different "theaters" that the virus is infecting. Each dot represents a unique country. In an analysis of countries, it is important to remember that countries are not located equidistant from one another. Countries are on top of huge land masses with large bodies of water between them separated by arbitrary borders. The virus should have trouble crossing oceans, however, with the advent of commercial airlines, it is now easier than every to cross border and unfortunately, spread disease. It is also important to remember that each country, no matter how large or small, has only 1 longitude and 1 latitude associated with it according to the "location" dataset. We have not factored in the precise location of each patient with confirmed COVID-19.
+
+Our k-means clustering graph has each cluster colored. Cluster 1 represents African and European countries, cluster 2 represents China itself with the most cases and least distance from China (Obviously 0), cluster 3 represents countries in the North and South Americas, and cluster 4 represents other Asian countries closest to China. It is interesting to note that countries in cluster 3, which represent countries farthest from China, have the least number of cases. 
+
+```{r pressure, echo=FALSE}
+sessionInfo()
+Sys.time()
+Sys.info()
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

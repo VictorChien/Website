@@ -1,0 +1,827 @@
+---
+title: "Project2"
+author: "Victor Chien"
+date: "4/28/2020"
+output: pdf_document
+---
+
+
+
+<p>##Websites Used (research):
+Health impacts of climate change: <a href="https://www.niehs.nih.gov/research/programs/geh/climatechange/health_impacts/asthma/index.cfm" class="uri">https://www.niehs.nih.gov/research/programs/geh/climatechange/health_impacts/asthma/index.cfm</a></p>
+<p>Financing Healthcare: <a href="https://ourworldindata.org/financing-healthcare" class="uri">https://ourworldindata.org/financing-healthcare</a></p>
+<p>PM 2.5: <a href="https://blissair.com/what-is-pm-2-5.htm" class="uri">https://blissair.com/what-is-pm-2-5.htm</a></p>
+<p>Report on healthcare financing: <a href="http://dcp-3.org/sites/default/files/resources/Global%20Health%202035%20Report.pdf" class="uri">http://dcp-3.org/sites/default/files/resources/Global%20Health%202035%20Report.pdf</a></p>
+<p>##Databases Used:
+Financing Healthcare Data (from The World Health Organization’s National Health Accounts): <a href="https://apps.who.int/nha/database/Home/Index/en" class="uri">https://apps.who.int/nha/database/Home/Index/en</a></p>
+<p>Pollution Data: <a href="https://data.worldbank.org/" class="uri">https://data.worldbank.org/</a></p>
+<p>Our World in Data (not used, contains data on testing but is incomplete): <a href="https://github.com/owid/covid-19-data/tree/master/public/data/" class="uri">https://github.com/owid/covid-19-data/tree/master/public/data/</a></p>
+<pre class="r"><code>#COVID Data
+library(tidyverse)
+library(readxl)
+covid &lt;- read_excel(&quot;C:\\Users\\Victor Chien\\Documents\\University of Texas at Austin\\Junior\\SDS 348 Computational Bio &amp; Bioinformatics\\COVID-19_2020-04-27.xlsx&quot;)
+
+#Fix covid Data
+covid &lt;- covid %&gt;% arrange(countryterritoryCode,dateRep) %&gt;% group_by(countryterritoryCode) %&gt;%
+  mutate(cum_cases = cumsum(cases),
+         cum_deaths = cumsum(deaths), 
+         mortality_percent = (cum_deaths/cum_cases)*100,
+         prop_infect = cum_cases/popData2018, 
+         GF = cases/lag(cases) %&gt;% round(4), #Growth Factor
+         )
+
+is.na(covid$GF) &lt;- sapply(covid$GF, is.infinite) #replace inf with NA
+covid$GF[is.na(covid$GF)] &lt;- 0 #replace NaN and NA with 0
+
+#GF rolling mean of last week
+covid &lt;- covid %&gt;% mutate(meanGFoflastweek = (GF+lag(GF,1)+lag(GF,2)+lag(GF,3)+lag(GF,4)+lag(GF,5)+lag(GF,6))/7) 
+
+#Arbitrarily define containment (can be modified to fit a better model)
+covid2 &lt;- covid %&gt;% filter(dateRep == max(dateRep)) %&gt;% select(countriesAndTerritories:meanGFoflastweek) %&gt;% 
+  mutate(contained = ifelse(meanGFoflastweek &lt; 1 &amp; cum_cases &gt; 400,1,0)) %&gt;% na.omit #omit five rows with no country code
+
+#summary of containment
+covid2 %&gt;% ungroup() %&gt;% summarize(&quot;Countries Contained&quot; = sum(contained), &quot;Total Countries&quot; = n())</code></pre>
+<pre><code>## # A tibble: 1 x 2
+##   `Countries Contained` `Total Countries`
+##                   &lt;dbl&gt;             &lt;int&gt;
+## 1                    35               202</code></pre>
+<pre class="r"><code>#Read Datasets
+
+#Healthcare Data (WHO NHA)
+health &lt;- read_excel(&quot;C:\\Users\\Victor Chien\\Documents\\University of Texas at Austin\\Junior\\SDS 348 Computational Bio &amp; Bioinformatics\\NHA Indicators with Region and Income.xlsx&quot;)
+
+#Pollution Data (World Bank)
+pollution &lt;- read_excel(&quot;C:\\Users\\Victor Chien\\Documents\\University of Texas at Austin\\Junior\\SDS 348 Computational Bio &amp; Bioinformatics\\World Bank Pollution.xlsx&quot;)
+
+
+#Merge Datasets
+merged &lt;- covid2 %&gt;%
+  left_join(health, by = c(&quot;countryterritoryCode&quot; = &quot;Code&quot;)) %&gt;%
+  left_join(pollution, by = c(&quot;countryterritoryCode&quot; = &quot;Country Code&quot;))
+
+#Select and Rename Necessary Variables
+merged2 &lt;- merged %&gt;% select(countryterritoryCode,`Country Name`,countryterritoryCode,contained,Region,Income,
+                  &quot;Mortality&quot; = mortality_percent,
+                  &quot;CHE&quot;=`Current Health Expenditure (CHE) as % Gross Domestic Product (GDP)`,
+                  &quot;GGHE-D&quot;=`Domestic General Government Health Expenditure (GGHE-D) as % Current Health Expenditure (CHE)`,
+                  &quot;PVT-D&quot;=`Domestic Private Health Expenditure (PVT-D) as % Current Health Expenditure (CHE)`,
+                  &quot;CO2&quot;=`CO2 emissions (kt) 2014`,
+                  &quot;N2O&quot;=`Nitrous oxide emissions (thousand metric tons of CO2 equivalent) 2012`,
+                  &quot;PM2.5&quot;=`PM2.5 air pollution, mean annual exposure (micrograms per cubic meter) 2017`,
+                  &quot;Smoking&quot;=`Smoking prevalence, total (ages 15+) 2016`
+                  )
+glimpse(merged2)</code></pre>
+<pre><code>## Rows: 202
+## Columns: 13
+## Groups: countryterritoryCode [202]
+## $ countryterritoryCode &lt;chr&gt; &quot;ABW&quot;, &quot;AFG&quot;, &quot;AGO&quot;, &quot;ALB&quot;, &quot;AND&quot;, &quot;ARE&quot;, &quot;ARG...
+## $ `Country Name`       &lt;chr&gt; &quot;Aruba&quot;, &quot;Afghanistan&quot;, &quot;Angola&quot;, &quot;Albania&quot;, &quot;...
+## $ contained            &lt;dbl&gt; 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 1, 0, 0...
+## $ Region               &lt;chr&gt; NA, &quot;EMR&quot;, &quot;AFR&quot;, &quot;EUR&quot;, &quot;EUR&quot;, &quot;EMR&quot;, &quot;AMR&quot;, ...
+## $ Income               &lt;chr&gt; NA, &quot;Low&quot;, &quot;Low-Mid&quot;, &quot;Up-Mid&quot;, &quot;Hi&quot;, &quot;Hi&quot;, &quot;H...
+## $ Mortality            &lt;dbl&gt; 2.0000000, 4.4415415, 7.6923077, 3.8567493, 5....
+## $ CHE                  &lt;dbl&gt; NA, 11.777194, 2.791500, NA, 10.320553, 3.3342...
+## $ `GGHE-D`             &lt;dbl&gt; NA, 5.095819, 46.278652, NA, 49.031994, 71.973...
+## $ `PVT-D`              &lt;dbl&gt; NA, 75.48405, 50.60656, NA, 50.96800, 28.02611...
+## $ CO2                  &lt;dbl&gt; 872.746, 9809.225, 34763.160, 5716.853, 462.04...
+## $ N2O                  &lt;dbl&gt; 6.488772e+00, 3.423687e+03, 3.641264e+03, 1.14...
+## $ PM2.5                &lt;dbl&gt; NA, 56.910808, 32.388505, 18.200603, 10.307621...
+## $ Smoking              &lt;dbl&gt; NA, NA, NA, 28.7, 33.5, 28.9, 21.8, 24.1, NA, ...</code></pre>
+<pre class="r"><code>unique(merged2$Region)</code></pre>
+<pre><code>## [1] NA     &quot;EMR&quot;  &quot;AFR&quot;  &quot;EUR&quot;  &quot;AMR&quot;  &quot;WPR&quot;  &quot;SEAR&quot;</code></pre>
+<pre class="r"><code>unique(merged2$Income)</code></pre>
+<pre><code>## [1] NA        &quot;Low&quot;     &quot;Low-Mid&quot; &quot;Up-Mid&quot;  &quot;Hi&quot;</code></pre>
+<p>The merged2 dataset contains data from 3 separate datasets. The first dataset (covid) employs the “contained” variable using data on COVID-19. A “Growth Factor” was calculated by dividing the number of new cases in one day by the number of new cases in the prior day. The rolling average of the previous week was calculated for each day and the most recent (2020-04-27) data point’s rolling mean GF was collected for each country. A country has contained COVID-19 (1) if the rolling mean GF is less than one AND if the cumulative number of cases is greater than 400 (arbitrary; used to filter out countries that haven’t been infected with COVID-19).</p>
+<p>The second dataset (health) includes healthcare financing statistics. CHE (current health expenditure) measures how much of a country’s GDP is spent on health. GGHE-D (Domestic General Government Health Expenditure) measures how much of the CHE is sourced from public health insurance and PVT-D (Domestic Private Health Expenditure) measures how much of the CHE is sourced from private health insurance.</p>
+<p>The third dataset (pollution) contains four metrics of environmental pollution before coronavirus including CO2 emission (kt) from 2014, N2O emission (kt-CO2 eqivalents) from 2012, PM2.5 (ug/m^3) from 2017, and smoking prevalence (%) from 2016. These are the primary greenhouse gases that several federal and world health authorities have deemed cause respiratory problems and lead to premature death. Although worldwide quarantines have temporarily reduced emission of harmful pollutants, populations with long-term exposure to high levels of pollution prior to the pandemic should theoretically be at higher risk. Thus, mortality rate has also been included.</p>
+<p>This project is meant to be a continuation of project 1, using new variables to model the likelihood of a country’s ability to contain COVID-19. The final merged2 dataset contains 202 observations with each country as its own row. The categorical variables Region and Income have been included for each Country, whose 3-letter country codes were used to join the datasets.</p>
+<pre class="r"><code>#MANOVA by Region
+man1 &lt;- manova(cbind(Mortality,CHE,`GGHE-D`,`PVT-D`,CO2,N2O,PM2.5,Smoking)~Region, data=merged2)
+summary(man1)</code></pre>
+<pre><code>##            Df Pillai approx F num Df den Df    Pr(&gt;F)    
+## Region      5 1.4384   6.2095     40    615 &lt; 2.2e-16 ***
+## Residuals 126                                            
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1</code></pre>
+<pre class="r"><code>summary.aov(man1)</code></pre>
+<pre><code>##  Response Mortality :
+##              Df  Sum Sq Mean Sq F value  Pr(&gt;F)  
+## Region        5  204.05   40.81  3.0987 0.01133 *
+## Residuals   126 1659.44   13.17                  
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response CHE :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Region        5 240.96  48.192  9.1833 1.795e-07 ***
+## Residuals   126 661.21   5.248                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response GGHE-D :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Region        5  13989 2797.85  8.3348 7.828e-07 ***
+## Residuals   126  42296  335.68                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response PVT-D :
+##              Df Sum Sq Mean Sq F value Pr(&gt;F)
+## Region        5   2526  505.16  1.6348 0.1555
+## Residuals   126  38935  309.01               
+## 
+##  Response CO2 :
+##              Df     Sum Sq    Mean Sq F value Pr(&gt;F)
+## Region        5 8.2182e+12 1.6436e+12  1.5839 0.1693
+## Residuals   126 1.3075e+14 1.0377e+12               
+## 
+##  Response N2O :
+##              Df     Sum Sq    Mean Sq F value  Pr(&gt;F)  
+## Region        5 3.6538e+10 7307513677  1.9054 0.09796 .
+## Residuals   126 4.8323e+11 3835129437                  
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response PM2.5 :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Region        5  20178  4035.6  18.383 1.124e-13 ***
+## Residuals   126  27661   219.5                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response Smoking :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Region        5 4583.7  916.75  17.317 5.084e-13 ***
+## Residuals   126 6670.1   52.94                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## 70 observations deleted due to missingness</code></pre>
+<pre class="r"><code>pairwise.t.test(merged2$Mortality, merged2$Region, p.adj = &quot;none&quot;)</code></pre>
+<pre><code>## 
+##  Pairwise comparisons using t tests with pooled SD 
+## 
+## data:  merged2$Mortality and merged2$Region 
+## 
+##      AFR    AMR    EMR    EUR    SEAR  
+## AMR  0.0447 -      -      -      -     
+## EMR  0.5201 0.0313 -      -      -     
+## EUR  0.2151 0.3635 0.1179 -      -     
+## SEAR 0.2519 0.0175 0.5838 0.0585 -     
+## WPR  0.0687 0.0014 0.3060 0.0069 0.7229
+## 
+## P value adjustment method: none</code></pre>
+<pre class="r"><code>pairwise.t.test(merged2$CHE, merged2$Region, p.adj = &quot;none&quot;)</code></pre>
+<pre><code>## 
+##  Pairwise comparisons using t tests with pooled SD 
+## 
+## data:  merged2$CHE and merged2$Region 
+## 
+##      AFR     AMR     EMR     EUR     SEAR   
+## AMR  0.00809 -       -       -       -      
+## EMR  0.90063 0.06037 -       -       -      
+## EUR  1.4e-05 0.14517 0.00223 -       -      
+## SEAR 0.10735 0.00129 0.13615 2.7e-05 -      
+## WPR  0.77430 0.02605 0.73389 0.00072 0.24009
+## 
+## P value adjustment method: none</code></pre>
+<pre class="r"><code>pairwise.t.test(merged2$`GGHE-D`, merged2$Region, p.adj = &quot;none&quot;)</code></pre>
+<pre><code>## 
+##  Pairwise comparisons using t tests with pooled SD 
+## 
+## data:  merged2$`GGHE-D` and merged2$Region 
+## 
+##      AFR     AMR    EMR    EUR    SEAR  
+## AMR  2.6e-06 -      -      -      -     
+## EMR  0.0028  0.4716 -      -      -     
+## EUR  2.1e-13 0.0124 0.0076 -      -     
+## SEAR 0.0683  0.2013 0.5486 0.0038 -     
+## WPR  1.7e-05 0.4737 0.2233 0.2533 0.0969
+## 
+## P value adjustment method: none</code></pre>
+<pre class="r"><code>pairwise.t.test(merged2$`PVT-D`, merged2$Region, p.adj = &quot;none&quot;)</code></pre>
+<pre><code>## 
+##  Pairwise comparisons using t tests with pooled SD 
+## 
+## data:  merged2$`PVT-D` and merged2$Region 
+## 
+##      AFR    AMR    EMR    EUR    SEAR  
+## AMR  0.5322 -      -      -      -     
+## EMR  0.7881 0.4663 -      -      -     
+## EUR  0.0045 0.0407 0.0199 -      -     
+## SEAR 0.6514 0.4035 0.8430 0.0306 -     
+## WPR  0.2004 0.4329 0.1995 0.4696 0.1854
+## 
+## P value adjustment method: none</code></pre>
+<pre class="r"><code>pairwise.t.test(merged2$PM2.5, merged2$Region, p.adj = &quot;none&quot;)</code></pre>
+<pre><code>## 
+##  Pairwise comparisons using t tests with pooled SD 
+## 
+## data:  merged2$PM2.5 and merged2$Region 
+## 
+##      AFR     AMR     EMR     EUR     SEAR   
+## AMR  3.2e-08 -       -       -       -      
+## EMR  3.6e-05 8.4e-15 -       -       -      
+## EUR  6.9e-11 0.56037 &lt; 2e-16 -       -      
+## SEAR 0.50422 2.5e-05 0.01497 2.6e-06 -      
+## WPR  0.00015 0.59381 3.1e-10 0.31778 0.00079
+## 
+## P value adjustment method: none</code></pre>
+<pre class="r"><code>pairwise.t.test(merged2$Smoking, merged2$Region, p.adj = &quot;none&quot;)</code></pre>
+<pre><code>## 
+##  Pairwise comparisons using t tests with pooled SD 
+## 
+## data:  merged2$Smoking and merged2$Region 
+## 
+##      AFR     AMR     EMR     EUR     SEAR   
+## AMR  0.51641 -       -       -       -      
+## EMR  0.00081 0.00685 -       -       -      
+## EUR  8.9e-14 1.8e-10 0.00926 -       -      
+## SEAR 0.00012 0.00105 0.40166 0.20547 -      
+## WPR  0.00024 0.00287 0.88216 0.01035 0.46556
+## 
+## P value adjustment method: none</code></pre>
+<pre class="r"><code>#MANOVA by Income (For s**** and giggles)
+man2 &lt;- manova(cbind(Mortality,CHE,`GGHE-D`,`PVT-D`,CO2,N2O,PM2.5,Smoking)~Income, data=merged2)
+summary(man2)</code></pre>
+<pre><code>##            Df Pillai approx F num Df den Df    Pr(&gt;F)    
+## Income      3 1.0535   8.3209     24    369 &lt; 2.2e-16 ***
+## Residuals 128                                            
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1</code></pre>
+<pre class="r"><code>summary.aov(man2)</code></pre>
+<pre><code>##  Response Mortality :
+##              Df  Sum Sq Mean Sq F value  Pr(&gt;F)  
+## Income        3   97.67  32.558    2.36 0.07456 .
+## Residuals   128 1765.82  13.795                  
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response CHE :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Income        3 201.24  67.080   12.25 4.248e-07 ***
+## Residuals   128 700.93   5.476                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response GGHE-D :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Income        3  29568  9855.9  47.218 &lt; 2.2e-16 ***
+## Residuals   128  26718   208.7                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response PVT-D :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Income        3   9513  3171.1  12.705 2.537e-07 ***
+## Residuals   128  31947   249.6                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response CO2 :
+##              Df     Sum Sq    Mean Sq F value Pr(&gt;F)
+## Income        3 3.5157e+12 1.1719e+12  1.1075 0.3487
+## Residuals   128 1.3545e+14 1.0582e+12               
+## 
+##  Response N2O :
+##              Df     Sum Sq    Mean Sq F value Pr(&gt;F)
+## Income        3 1.2827e+10 4275617972  1.0796 0.3602
+## Residuals   128 5.0694e+11 3960445496               
+## 
+##  Response PM2.5 :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Income        3   9404 3134.70   10.44 3.422e-06 ***
+## Residuals   128  38434  300.27                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+##  Response Smoking :
+##              Df Sum Sq Mean Sq F value    Pr(&gt;F)    
+## Income        3 1785.7  595.25  8.0472 5.924e-05 ***
+## Residuals   128 9468.1   73.97                      
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## 70 observations deleted due to missingness</code></pre>
+<pre class="r"><code>pairwise.t.test(merged2$`GGHE-D`,merged2$Income)</code></pre>
+<pre><code>## 
+##  Pairwise comparisons using t tests with pooled SD 
+## 
+## data:  merged2$`GGHE-D` and merged2$Income 
+## 
+##         Hi      Low     Low-Mid
+## Low     &lt; 2e-16 -       -      
+## Low-Mid 1.1e-13 9.5e-06 -      
+## Up-Mid  4.6e-05 5.1e-14 1e-04  
+## 
+## P value adjustment method: holm</code></pre>
+<pre class="r"><code>#Multivariate Plots
+ggplot(merged2, aes(x = Smoking, y = `PVT-D`)) +
+geom_point(alpha = .5) + geom_density_2d(h=20) + coord_fixed() + facet_wrap(~Region) </code></pre>
+<p><img src="/project2_files/figure-html/unnamed-chunk-3-1.png" width="1152" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>ggplot(merged2, aes(x = Mortality, y = CHE)) +
+geom_point(alpha = .5) + geom_density_2d(h=10) + coord_fixed() + facet_wrap(~Region)</code></pre>
+<p><img src="/project2_files/figure-html/unnamed-chunk-3-2.png" width="1152" style="display: block; margin: auto;" /></p>
+<p>Two categorical variables, Region and Income, were found, so MANOVAs for each were performed. For both, there is a significant difference between groups in at least one variable. However, since we are interested in comparing different countries’ responses to COVID-19 we will only be comparing means by Region. There are many variables to be tested (84 hypothesis tests), so our Type-I Error Rate is very high: 98.65%. We must use the Bonferroni correction alpha = 5.952e-4 to evaluate significance.
+Within Mortality, no region’s mortality rate is significantly different using the Bonferroni correction.
+Within CHE, Europe differs with Africa and South East Asia.
+Within GGHE-D, Africa differs from the Americas, Europe, and Western Pacific.
+Within PVT-D, no region’s PVT-D is significantly different from one another.
+Within PM2.5, Africa differs all regions except SE Asia. The Americas differ from Africa, Eastern Mediterranean, and SE Asia. The Eastern Mediterranean differs with all regions except SE Asia. Europe differs from Africa, Eastern Mediteranean, and SE Asia. SE Asia differs from the Americas and Europe.
+Within Smoking, Africa differs from Europe, SE Asia, and Western Pacific. The Americas differ from Europe, SE Asia, and Western Pacific.</p>
+<p>Because we are examining data from all countries, many variables do not have a proper normal distribution. For example, looking at the multivariate plot with PVT-D and Smoking, we can see that these variables vary quite a bit depending on government and cultural norms.
+From the multivariate plot with CHE and Mortality, we can see that most mortality rates are in fact centered between 0% and 10%, however, the graphs have outliers with mortality skewed to the right since mortality can increase all the way to 100% but cannot go under 0%.
+Although these are separate and independent countries, they may not be completely independent observations since borders are fluid and cultural norms (smoking prevalence), COVID-19 (mortality), and ideas about government norms (CHE) may travel across borders. Pollution statistics especially, since they are measures of air quality, can link countries in close geographic proximity.</p>
+<pre class="r"><code>#Randomization Test
+anovaData &lt;- merged2 %&gt;% select(Income,`GGHE-D`) %&gt;% na.omit() %&gt;% ungroup()#new dataset to omit NAs
+anovaData %&gt;% group_by(Income) %&gt;% summarize(n(), mean=mean(`GGHE-D`,na.rm = T)) #number of obs and means per group</code></pre>
+<pre><code>## # A tibble: 4 x 3
+##   Income  `n()`  mean
+##   &lt;chr&gt;   &lt;int&gt; &lt;dbl&gt;
+## 1 Hi         56  68.7
+## 2 Low        27  24.0
+## 3 Low-Mid    40  42.3
+## 4 Up-Mid     46  55.5</code></pre>
+<pre class="r"><code>summary(aov(`GGHE-D`~Income, data=anovaData)) #Obs F = 58.82</code></pre>
+<pre><code>##              Df Sum Sq Mean Sq F value Pr(&gt;F)    
+## Income        3  41162   13721   58.82 &lt;2e-16 ***
+## Residuals   165  38489     233                   
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1</code></pre>
+<pre class="r"><code>pairwise.t.test(anovaData$`GGHE-D`,anovaData$Income, p.adj = &quot;none&quot;) #p-values</code></pre>
+<pre><code>## 
+##  Pairwise comparisons using t tests with pooled SD 
+## 
+## data:  anovaData$`GGHE-D` and anovaData$Income 
+## 
+##         Hi      Low     Low-Mid
+## Low     &lt; 2e-16 -       -      
+## Low-Mid 2.6e-14 3.2e-06 -      
+## Up-Mid  2.3e-05 1.0e-14 1e-04  
+## 
+## P value adjustment method: none</code></pre>
+<pre class="r"><code>#The Actual Randomization Test...
+obs_F &lt;- 58.82
+Fs &lt;- replicate(5000,{ 
+new&lt;- anovaData %&gt;% mutate(`GGHE-D` = sample(`GGHE-D`)) #randomly permute response variable
+
+SSW &lt;- new %&gt;% group_by(Income) %&gt;% summarize(SSW=sum((`GGHE-D`-mean(`GGHE-D`))^2)) %&gt;%
+  summarize(sum(SSW)) %&gt;% pull
+SSB &lt;- new %&gt;% mutate(mean=mean(`GGHE-D`)) %&gt;% group_by(Income) %&gt;% mutate(groupmean=mean(`GGHE-D`)) %&gt;%
+  summarize(SSB=sum((mean-groupmean)^2)) %&gt;% summarize(sum(SSB)) %&gt;% pull
+
+(SSB/3)/(SSW/165) #compute F statistic (num df = K-1 = 4-1, denom df = N-K = 169-4)
+})
+
+hist(Fs, prob=T); abline(v = obs_F, col=&quot;red&quot;,add=T)</code></pre>
+<p><img src="/project2_files/figure-html/unnamed-chunk-4-1.png" width="672" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>mean(Fs&gt;obs_F) #p-value</code></pre>
+<pre><code>## [1] 0</code></pre>
+<p>Since we evaluated the MANOVA by Region in the previous section, we will be looking at variables by Income group for our Randomization Test. Running some preliminary tests, we see that GGHE-D varies widely based on Income group of a country, so we will be running a randomization ANOVA for GGHE-D by Income group under these hypotheses…</p>
+<p>Null Hypothesis: There is no difference in GGHE-D means between any income group.
+Alternative Hypothesis: At least one of the means differ from the others</p>
+<p>Our observed F-statistic is 58.82. From the histogram of generated F statistics, we can see that no F-statistics are anywhere close to 58.82, thus, the p-value is effectively 0. We reject the null hypothesis and conclude that at least one of the means differ from the others.</p>
+<pre class="r"><code>#Linear Regression
+linearData_c &lt;- merged2 %&gt;% ungroup() %&gt;% select(CHE,`GGHE-D`,`PVT-D`,CO2,N2O,PM2.5,Smoking,-countryterritoryCode) %&gt;% scale(scale=FALSE) %&gt;% as.data.frame()
+linearData_c$Mortality &lt;- merged2 %&gt;% ungroup() %&gt;% select(Mortality = Mortality) %&gt;% unlist() %&gt;% as.numeric
+
+
+linear1 &lt;- lm(Mortality ~ CHE+N2O+CO2+Smoking, data=linearData_c)
+summary(linear1)</code></pre>
+<pre><code>## 
+## Call:
+## lm(formula = Mortality ~ CHE + N2O + CO2 + Smoking, data = linearData_c)
+## 
+## Residuals:
+##     Min      1Q  Median      3Q     Max 
+## -4.8072 -2.3043 -0.9194  0.9737 12.0288 
+## 
+## Coefficients:
+##               Estimate Std. Error t value Pr(&gt;|t|)    
+## (Intercept)  3.758e+00  3.126e-01  12.022  &lt; 2e-16 ***
+## CHE          5.163e-01  1.211e-01   4.262 3.92e-05 ***
+## N2O          1.984e-05  1.467e-05   1.352    0.179    
+## CO2         -1.035e-06  9.018e-07  -1.147    0.253    
+## Smoking     -1.952e-02  3.432e-02  -0.569    0.571    
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## Residual standard error: 3.563 on 127 degrees of freedom
+##   (70 observations deleted due to missingness)
+## Multiple R-squared:  0.1349, Adjusted R-squared:  0.1077 
+## F-statistic: 4.953 on 4 and 127 DF,  p-value: 0.0009617</code></pre>
+<pre class="r"><code>linear2 &lt;- lm(Mortality ~ CHE*N2O*CO2*Smoking, data=linearData_c)
+summary(linear2)</code></pre>
+<pre><code>## 
+## Call:
+## lm(formula = Mortality ~ CHE * N2O * CO2 * Smoking, data = linearData_c)
+## 
+## Residuals:
+##     Min      1Q  Median      3Q     Max 
+## -5.0279 -2.2497 -0.5754  1.3755  9.7783 
+## 
+## Coefficients:
+##                       Estimate Std. Error t value Pr(&gt;|t|)    
+## (Intercept)          4.177e+00  4.278e-01   9.764  &lt; 2e-16 ***
+## CHE                  5.162e-01  1.607e-01   3.213  0.00170 ** 
+## N2O                  3.718e-05  3.148e-05   1.181  0.23990    
+## CO2                  2.004e-06  3.339e-06   0.600  0.54960    
+## Smoking              1.169e-01  6.182e-02   1.891  0.06114 .  
+## CHE:N2O              5.330e-06  8.951e-06   0.595  0.55274    
+## CHE:CO2             -8.497e-07  8.821e-07  -0.963  0.33742    
+## N2O:CO2              3.532e-11  1.714e-11   2.061  0.04154 *  
+## CHE:Smoking          5.237e-02  2.212e-02   2.367  0.01960 *  
+## N2O:Smoking          1.347e-05  3.138e-06   4.292 3.69e-05 ***
+## CO2:Smoking         -2.860e-07  2.470e-07  -1.158  0.24930    
+## CHE:N2O:CO2          1.390e-12  2.997e-12   0.464  0.64368    
+## CHE:N2O:Smoking      4.242e-06  1.320e-06   3.214  0.00169 ** 
+## CHE:CO2:Smoking     -1.204e-07  1.339e-07  -0.899  0.37068    
+## N2O:CO2:Smoking     -2.336e-11  8.332e-12  -2.804  0.00593 ** 
+## CHE:N2O:CO2:Smoking -9.864e-12  3.386e-12  -2.913  0.00430 ** 
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## Residual standard error: 3.371 on 116 degrees of freedom
+##   (70 observations deleted due to missingness)
+## Multiple R-squared:  0.2928, Adjusted R-squared:  0.2013 
+## F-statistic: 3.201 on 15 and 116 DF,  p-value: 0.0001992</code></pre>
+<p>A linear regression has been run on four predictor variables (CHE, N2O, CO2, and Smoking) and its effect on Mortality rate, so there are many coefficients in our model.
+Keep in mind that these variables have different units and are centered at the mean:
+CHE - Current Health Expenditure as a % of GDP
+N2O - kilotonnes of CO2 equivalents emitted
+CO2 - kilotonnes emitted
+Smoking - Prevalence as a % of population
+Mortality - % of COVID-19 deaths out of the number of confirmed cases</p>
+<p>Thus, for a country that has the mean value of each predictor variable, the predicted mortality rate is 4.177%. For every 1% of GDP increase in health expenditure, predicted mortality increases by 0.5162%. For every 1kt increase in N2O, mortality increases by a measly 0.000037%. For every 1kt increase in CO2, mortality increases by an even smaller 0.000002%. For every 1% increase in smoking prevalence, mortality increases by 0.1169%.
+For two variable interactions, a 1 unit increase in both variables will change the mortality by a percentage as indicated by the coefficients. For example, a 1% of GDP increase in CHE and a 1kt increase in N2O will increase mortality by 5.330e-6%.
+For three variable interactions, a 1 unit increase in all 3 variables will change mortality by a percent indicated by the coefficient. For example, a 1 unit increase in CHE, N2O, and CO2 increases mortality by 1.390e-12%.
+For the four variable interaction, a 1 unit increase in all 4 predictor variables actually decreases mortality by 0.9864e-12%.
+There are 16 of these coefficients, so I’ve only provided a few examples. Since these variables are mean centered, if a value is less than the mean, the predicted mortality rate changes in the opposite direction notated by the coefficients.</p>
+<pre class="r"><code>#Linear Regression Continued
+
+#Plot Regression
+fit &lt;- lm(Mortality ~ CHE*CO2*N2O*Smoking, data=linearData_c)
+new1 &lt;- linearData_c
+
+new1$Smoking&lt;-mean(linearData_c$Smoking, na.rm = T)
+new1$mean&lt;-predict(fit,new1)
+new1$Smoking&lt;-mean(linearData_c$Smoking, na.rm = T)+sd(linearData_c$Smoking, na.rm = T)
+new1$plus.sd&lt;-predict(fit,new1)
+new1$Smoking&lt;-mean(linearData_c$Smoking, na.rm = T)-sd(linearData_c$Smoking, na.rm = T)
+new1$minus.sd&lt;-predict(fit,new1)
+
+newint &lt;- new1 %&gt;% select(Mortality,CHE,Smoking,mean,plus.sd,minus.sd) %&gt;% gather(Smoking,value,-Mortality,-CHE)
+
+mycols&lt;-c(&quot;#619CFF&quot;,&quot;#F8766D&quot;,&quot;#00BA38&quot;)
+names(mycols)&lt;-c(&quot;-1 sd&quot;,&quot;mean&quot;,&quot;+1 sd&quot;)
+mycols=as.factor(mycols)
+
+ggplot(linearData_c,aes(x=CHE,y=Mortality),group=mycols)+geom_point()+
+  geom_line(data=new1,aes(y=mean,color=&quot;mean&quot;))+
+  geom_line(data=new1,aes(y=plus.sd,color=&quot;+1 sd&quot;))+
+  geom_line(data=new1,aes(y=minus.sd,color=&quot;-1 sd&quot;))+
+  scale_color_manual(values=mycols)+labs(color=&quot;Smoking&quot;)+
+  theme(legend.position=c(.9,.8)) +
+  scale_y_continuous(limits = c(0,25))</code></pre>
+<p><img src="/project2_files/figure-html/unnamed-chunk-6-1.png" width="672" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>#Check Assumptions
+library(lmtest)
+resids &lt;- fit$residuals
+fitvals &lt;- fit$fitted.values
+bptest(fit) #linearity, homoscedasticity</code></pre>
+<pre><code>## 
+##  studentized Breusch-Pagan test
+## 
+## data:  fit
+## BP = 8.3349, df = 15, p-value = 0.9097</code></pre>
+<pre class="r"><code>ks.test(resids, &quot;pnorm&quot;, mean=0, sd(resids)) #normality</code></pre>
+<pre><code>## 
+##  One-sample Kolmogorov-Smirnov test
+## 
+## data:  resids
+## D = 0.1071, p-value = 0.09679
+## alternative hypothesis: two-sided</code></pre>
+<pre class="r"><code>#Robust Standard Errors
+library(sandwich)
+coeftest(fit,vcov = vcovHC(fit)) </code></pre>
+<pre><code>## 
+## t test of coefficients:
+## 
+##                        Estimate  Std. Error t value  Pr(&gt;|t|)    
+## (Intercept)          4.1769e+00  6.4779e-01  6.4480 2.707e-09 ***
+## CHE                  5.1621e-01  2.9384e-01  1.7568   0.08160 .  
+## CO2                  2.0040e-06  4.7213e-06  0.4245   0.67201    
+## N2O                  3.7182e-05  4.6688e-05  0.7964   0.42743    
+## Smoking              1.1688e-01  1.3112e-01  0.8915   0.37453    
+## CHE:CO2             -8.4969e-07  1.6403e-06 -0.5180   0.60543    
+## CHE:N2O              5.3295e-06  1.7302e-05  0.3080   0.75862    
+## CO2:N2O              3.5325e-11  1.4287e-10  0.2473   0.80515    
+## CHE:Smoking          5.2366e-02  5.0681e-02  1.0332   0.30364    
+## CO2:Smoking         -2.8602e-07  8.7755e-07 -0.3259   0.74507    
+## N2O:Smoking          1.3469e-05  7.2540e-06  1.8567   0.06588 .  
+## CHE:CO2:N2O          1.3899e-12  7.3781e-11  0.0188   0.98500    
+## CHE:CO2:Smoking     -1.2036e-07  3.4304e-07 -0.3509   0.72632    
+## CHE:N2O:Smoking      4.2416e-06  2.2523e-06  1.8832   0.06218 .  
+## CO2:N2O:Smoking     -2.3361e-11  1.6690e-11 -1.3997   0.16428    
+## CHE:CO2:N2O:Smoking -9.8638e-12  8.1875e-12 -1.2047   0.23076    
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1</code></pre>
+<pre class="r"><code>#Proportion of Variation Explained
+summary(fit)</code></pre>
+<pre><code>## 
+## Call:
+## lm(formula = Mortality ~ CHE * CO2 * N2O * Smoking, data = linearData_c)
+## 
+## Residuals:
+##     Min      1Q  Median      3Q     Max 
+## -5.0279 -2.2497 -0.5754  1.3755  9.7783 
+## 
+## Coefficients:
+##                       Estimate Std. Error t value Pr(&gt;|t|)    
+## (Intercept)          4.177e+00  4.278e-01   9.764  &lt; 2e-16 ***
+## CHE                  5.162e-01  1.607e-01   3.213  0.00170 ** 
+## CO2                  2.004e-06  3.339e-06   0.600  0.54960    
+## N2O                  3.718e-05  3.148e-05   1.181  0.23990    
+## Smoking              1.169e-01  6.182e-02   1.891  0.06114 .  
+## CHE:CO2             -8.497e-07  8.821e-07  -0.963  0.33742    
+## CHE:N2O              5.330e-06  8.951e-06   0.595  0.55274    
+## CO2:N2O              3.532e-11  1.714e-11   2.061  0.04154 *  
+## CHE:Smoking          5.237e-02  2.212e-02   2.367  0.01960 *  
+## CO2:Smoking         -2.860e-07  2.470e-07  -1.158  0.24930    
+## N2O:Smoking          1.347e-05  3.138e-06   4.292 3.69e-05 ***
+## CHE:CO2:N2O          1.390e-12  2.997e-12   0.464  0.64368    
+## CHE:CO2:Smoking     -1.204e-07  1.339e-07  -0.899  0.37068    
+## CHE:N2O:Smoking      4.242e-06  1.320e-06   3.214  0.00169 ** 
+## CO2:N2O:Smoking     -2.336e-11  8.332e-12  -2.804  0.00593 ** 
+## CHE:CO2:N2O:Smoking -9.864e-12  3.386e-12  -2.913  0.00430 ** 
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## Residual standard error: 3.371 on 116 degrees of freedom
+##   (70 observations deleted due to missingness)
+## Multiple R-squared:  0.2928, Adjusted R-squared:  0.2013 
+## F-statistic: 3.201 on 15 and 116 DF,  p-value: 0.0001992</code></pre>
+<p>Using the studentized Breusch-Pagan test, we fail to reject the null hypothesis that the residuals are homoscedastic (BP = 8.3349, df = 15, p-value = 0.9097), therefore, the residuals are homoscedastic.
+Using the one-sample Kolmogorov-Smirnov test, we fail to reject the null hypothesis that the data is normally distributed (D = 0.1071, p-value = 0.09679), therefore, the data is normally distributed.</p>
+<p>After recomputing the regression with robust standard errors, every item that was significant is no longer significant. While the coefficients stayed the same, standard errors increased because robust standard errors are used when the residuals are heteroscedastic (violating an assumption). This decreases t-values and increases p-values. There are, however, 3 coefficients that have a p-value &lt; 0.10. These are CHE, N2O:Smoking, and CHE:N2O:Smoking, which are almost but not quite significant under alpha = 0.05.</p>
+<p>According to the adjusted R-squared, the original model explains 20.13% of the variation in the outcome.</p>
+<pre class="r"><code>#Bootstrapped Standard Error
+samp_distn &lt;- replicate(5000, {
+boot_dat &lt;- sample_frac(linearData_c, replace=T) #bootstrap data
+fit &lt;- lm(Mortality ~ CHE*CO2*N2O*Smoking, data=boot_dat) #fit model
+coef(fit) #save coefs
+})
+## Estimated SEs
+samp_distn %&gt;% t %&gt;% as.data.frame %&gt;% summarize_all(sd) %&gt;% t</code></pre>
+<pre><code>##                             [,1]
+## (Intercept)         6.391009e-01
+## CHE                 2.704194e-01
+## CO2                 4.758047e-06
+## N2O                 4.910014e-05
+## Smoking             1.065087e-01
+## CHE:CO2             1.964206e-06
+## CHE:N2O             1.880721e-05
+## CO2:N2O             1.950031e-10
+## CHE:Smoking         4.306518e-02
+## CO2:Smoking         7.730438e-07
+## N2O:Smoking         7.378867e-06
+## CHE:CO2:N2O         8.125039e-11
+## CHE:CO2:Smoking     3.015184e-07
+## CHE:N2O:Smoking     2.499277e-06
+## CO2:N2O:Smoking     2.563348e-11
+## CHE:CO2:N2O:Smoking 1.027194e-11</code></pre>
+<p>The bootstrapped SEs are greater than the original SEs for each coefficient. This means that the p-values are also larger so our coefficients will be less significant. The bootstrapped SEs are similar to the robust SEs with some slightly larger and others slightly smaller. The p-values of the boostrapped data should be pretty close to those of the model using robust SEs.</p>
+<pre class="r"><code>#Logistic Regression
+logistic &lt;- glm(contained ~ CHE+`GGHE-D`+`PVT-D`+CO2+N2O+PM2.5+Smoking ,data=merged2, family = binomial)
+summary(logistic)</code></pre>
+<pre><code>## 
+## Call:
+## glm(formula = contained ~ CHE + `GGHE-D` + `PVT-D` + CO2 + N2O + 
+##     PM2.5 + Smoking, family = binomial, data = merged2)
+## 
+## Deviance Residuals: 
+##     Min       1Q   Median       3Q      Max  
+## -1.3369  -0.7339  -0.4903  -0.2716   2.2783  
+## 
+## Coefficients:
+##               Estimate Std. Error z value Pr(&gt;|z|)  
+## (Intercept) -5.473e+00  2.603e+00  -2.102   0.0355 *
+## CHE          1.960e-01  1.049e-01   1.868   0.0617 .
+## `GGHE-D`     4.914e-02  2.453e-02   2.004   0.0451 *
+## `PVT-D`      1.385e-02  2.810e-02   0.493   0.6221  
+## CO2         -1.239e-08  7.735e-07  -0.016   0.9872  
+## N2O         -2.953e-06  1.216e-05  -0.243   0.8082  
+## PM2.5        1.337e-02  1.415e-02   0.945   0.3449  
+## Smoking     -3.856e-02  2.713e-02  -1.421   0.1553  
+## ---
+## Signif. codes:  0 &#39;***&#39; 0.001 &#39;**&#39; 0.01 &#39;*&#39; 0.05 &#39;.&#39; 0.1 &#39; &#39; 1
+## 
+## (Dispersion parameter for binomial family taken to be 1)
+## 
+##     Null deviance: 139.00  on 131  degrees of freedom
+## Residual deviance: 123.72  on 124  degrees of freedom
+##   (70 observations deleted due to missingness)
+## AIC: 139.72
+## 
+## Number of Fisher Scoring iterations: 5</code></pre>
+<pre class="r"><code>exp(coef(logistic)) </code></pre>
+<pre><code>## (Intercept)         CHE    `GGHE-D`     `PVT-D`         CO2         N2O 
+## 0.004197259 1.216568213 1.050372056 1.013948654 0.999999988 0.999997047 
+##       PM2.5     Smoking 
+## 1.013457176 0.962175448</code></pre>
+<p>The coefficients of the logistic regression are log odds, so we have exponentiated coefficients to reflect odds. For every 1% of GDP increase in CHE, the odds of containment increases by a factor of 1.217. For every 1% of CHE increase in Government Health Expenditure (GGHE-D), the odds of containment increases by a factor of 1.05. For every 1% of CHE increase in Private Health Expenditure (PVT-D), the odds of containment increases by a factor of 1.014. The odds of containment changes very little for each 1kt increase in CO2 or N2O - only by a factor of 0.99999. For every 1 micrograms per cubic meter increase in PM2.5, the odds of containment increases by a factor of 1.013. For every 1% increase in smoking prevalence, the odds of containment decreases by a factor of 0.9622.
+Note that factors can be changed to percentage change by subtracting 1 and multiplying by 100. For example a 1% of GDP increase in CHE increases the odds of containment by 21.7%.</p>
+<pre class="r"><code>#Logistic Regression Continued
+
+prob &lt;- predict(logistic, type = &quot;response&quot;) %&gt;% as.vector()
+truth &lt;- merged2 %&gt;% na.omit
+table(truth$contained, prediction=as.numeric(prob&gt;0.5))%&gt;%addmargins</code></pre>
+<pre><code>##      prediction
+##         0   1 Sum
+##   0   100   3 103
+##   1    26   3  29
+##   Sum 126   6 132</code></pre>
+<pre class="r"><code>class_diag &lt;- function(probs,truth){
+  
+  #CONFUSION MATRIX: CALCULATE ACCURACY, TPR, TNR, PPV
+  tab&lt;-table(factor(probs&gt;.5,levels=c(&quot;FALSE&quot;,&quot;TRUE&quot;)),truth)
+  acc=sum(diag(tab))/sum(tab)
+  sens=tab[2,2]/colSums(tab)[2]
+  spec=tab[1,1]/colSums(tab)[1]
+  ppv=tab[2,2]/rowSums(tab)[2]
+
+  if(is.numeric(truth)==FALSE &amp; is.logical(truth)==FALSE) truth&lt;-as.numeric(truth)-1
+  
+  #CALCULATE EXACT AUC
+  ord&lt;-order(probs, decreasing=TRUE)
+  probs &lt;- probs[ord]; truth &lt;- truth[ord]
+  
+  TPR=cumsum(truth)/max(1,sum(truth)) 
+  FPR=cumsum(!truth)/max(1,sum(!truth))
+  
+  dup&lt;-c(probs[-1]&gt;=probs[-length(probs)], FALSE)
+  TPR&lt;-c(0,TPR[!dup],1); FPR&lt;-c(0,FPR[!dup],1)
+  
+  n &lt;- length(TPR)
+  auc&lt;- sum( ((TPR[-1]+TPR[-n])/2) * (FPR[-1]-FPR[-n]) )
+
+  data.frame(acc,sens,spec,ppv,auc)
+}
+
+class_diag(prob,truth$contained)</code></pre>
+<pre><code>##        acc      sens      spec ppv       auc
+## 1 0.780303 0.1034483 0.9708738 0.5 0.7261466</code></pre>
+<p>The model is relatively accurate, however we can see from the confusion matrix that many of the actual contained countries (1) are predicted not contained (0) as reflected by a very low sensitivity/true positive rate. The specificity/true negative rate is high since the model has predicted 0 for most country containments. The positive predictive value is also rather poor since the model did not predict many 1s. The AUC for this model is 0.726, which is fair.</p>
+<pre class="r"><code>#Density Plot
+logisticData &lt;- merged2 %&gt;% na.omit() %&gt;% ungroup() %&gt;% as.data.frame()
+logisticData$logit &lt;- predict(logistic,type=&quot;link&quot;)
+
+logisticData &lt;- logisticData %&gt;% mutate(outcome = ifelse(contained == 1,&quot;contained&quot;,&quot;not contained&quot;))
+logisticData$outcome &lt;- factor(logisticData$outcome,levels=c(&quot;contained&quot;,&quot;not contained&quot;)) 
+
+glimpse(logisticData)</code></pre>
+<pre><code>## Rows: 132
+## Columns: 15
+## $ countryterritoryCode &lt;chr&gt; &quot;AND&quot;, &quot;ARE&quot;, &quot;ARG&quot;, &quot;ARM&quot;, &quot;AUS&quot;, &quot;AUT&quot;, &quot;AZE...
+## $ `Country Name`       &lt;chr&gt; &quot;Andorra&quot;, &quot;United Arab Emirates&quot;, &quot;Argentina&quot;...
+## $ contained            &lt;dbl&gt; 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1...
+## $ Region               &lt;chr&gt; &quot;EUR&quot;, &quot;EMR&quot;, &quot;AMR&quot;, &quot;EUR&quot;, &quot;WPR&quot;, &quot;EUR&quot;, &quot;EUR...
+## $ Income               &lt;chr&gt; &quot;Hi&quot;, &quot;Hi&quot;, &quot;Hi&quot;, &quot;Up-Mid&quot;, &quot;Hi&quot;, &quot;Hi&quot;, &quot;Up-Mi...
+## $ Mortality            &lt;dbl&gt; 5.4054054, 0.7343705, 4.9376161, 1.6039823, 1....
+## $ CHE                  &lt;dbl&gt; 10.320553, 3.334282, 9.124315, 10.362705, 9.20...
+## $ `GGHE-D`             &lt;dbl&gt; 49.03199, 71.97389, 72.43212, 13.24467, 68.912...
+## $ `PVT-D`              &lt;dbl&gt; 50.968002, 28.026108, 27.071136, 85.468376, 31...
+## $ CO2                  &lt;dbl&gt; 462.042, 211369.547, 204024.546, 5529.836, 361...
+## $ N2O                  &lt;dbl&gt; 1.569282e-02, 2.412985e+03, 5.310136e+04, 1.02...
+## $ PM2.5                &lt;dbl&gt; 10.307621, 40.917510, 13.311834, 32.528118, 8....
+## $ Smoking              &lt;dbl&gt; 33.5, 28.9, 21.8, 24.1, 14.7, 29.6, 20.8, 28.2...
+## $ logit                &lt;dbl&gt; -1.48840052, -1.47147138, -0.57199345, -2.1045...
+## $ outcome              &lt;fct&gt; not contained, not contained, contained, not c...</code></pre>
+<pre class="r"><code>logisticData %&gt;% ggplot()+geom_density(aes(logit,color=outcome,fill=outcome), alpha=.4)+
+  geom_vline(xintercept=0)+
+  xlab(&quot;logit (log-odds)&quot;)+
+  geom_rug(aes(logit,color=outcome))</code></pre>
+<p><img src="/project2_files/figure-html/unnamed-chunk-10-1.png" width="672" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>#ROC Curve
+library(plotROC)
+logisticData$prob &lt;- predict(logistic, type=&quot;response&quot;)
+
+ROC &lt;- ggplot(logisticData) +
+  geom_roc(aes(d=outcome,m=prob), n.cuts = 0) +
+  xlab(&quot;FPR&quot;) +
+  ylab(&quot;TPR&quot;)
+ROC</code></pre>
+<p><img src="/project2_files/figure-html/unnamed-chunk-10-2.png" width="672" style="display: block; margin: auto;" /></p>
+<pre class="r"><code>calc_auc(ROC)</code></pre>
+<pre><code>##   PANEL group       AUC
+## 1     1    -1 0.2738534</code></pre>
+<p>The density plot above shows significant overlap between contained and not contained.
+This is reflected in a low AUC of 0.2739, which is very poor. This means that our model is not a good predictor of whether a country contains COVID-19 at all.</p>
+<pre class="r"><code>#10-fold CV
+set.seed(1234)
+k=10
+
+data &lt;- merged2 %&gt;% sample_frac %&gt;% na.omit  #put rows of dataset in random order
+folds &lt;- ntile(1:nrow(data),n=10) #create fold labels
+
+diags&lt;-NULL
+for(i in 1:k){
+train &lt;- data[folds!=i,] #create training set (all but fold i)
+test &lt;- data[folds==i,] #create test set (just fold i)
+truth &lt;- test$contained #save truth labels from fold i
+fit &lt;- glm(contained ~ CHE+`GGHE-D`+`PVT-D`+CO2+N2O+PM2.5+Smoking ,data=train, family = &quot;binomial&quot;)
+probs &lt;- predict(fit, newdata=test, type=&quot;response&quot;)
+diags&lt;-rbind(diags,class_diag(probs,truth))
+}
+summarize_all(diags,mean)</code></pre>
+<pre><code>##        acc       sens      spec ppv       auc
+## 1 0.732967 0.03333333 0.9265501 NaN 0.5931449</code></pre>
+<p>Accuracy: 0.733
+Sensitivity: 0.033
+AUC: 0.593
+Once again, the model does a poor job predicting containment for countries who actually have contained COVID-19 (based on our guidelines).</p>
+<pre class="r"><code>#LASSO Regression
+library(glmnet)
+y&lt;-as.matrix(data$contained) #grab response
+x&lt;-model.matrix(contained ~ CHE+`GGHE-D`+`PVT-D`+CO2+N2O+PM2.5+Smoking,data=data)[,-1] #grab predictors
+x&lt;-scale(x)
+cv&lt;-cv.glmnet(x,y,family=&quot;binomial&quot;)
+lasso&lt;-glmnet(x,y,family=&quot;binomial&quot;,lambda=cv$lambda.1se)
+coef(lasso)</code></pre>
+<pre><code>## 8 x 1 sparse Matrix of class &quot;dgCMatrix&quot;
+##                    s0
+## (Intercept) -1.267433
+## CHE          0.000000
+## `GGHE-D`     .       
+## `PVT-D`      .       
+## CO2          .       
+## N2O          .       
+## PM2.5        .       
+## Smoking      .</code></pre>
+<pre class="r"><code>#10-fold CV on LASSO
+set.seed(1234)
+k=10
+data &lt;- merged2 %&gt;% sample_frac %&gt;% na.omit #put rows of dataset in random order
+folds &lt;- ntile(1:nrow(data),n=10) #create fold labels
+diags&lt;-NULL
+for(i in 1:k){
+train &lt;- data[folds!=i,] #create training set (all but fold i)
+test &lt;- data[folds==i,] #create test set (just fold i)
+truth &lt;- test$contained #save truth labels from fold i
+fit &lt;- glm(contained~CHE,
+data=train, family=&quot;binomial&quot;)
+probs &lt;- predict(fit, newdata=test, type=&quot;response&quot;)
+diags&lt;-rbind(diags,class_diag(probs,truth))
+}
+diags%&gt;%summarize_all(mean)</code></pre>
+<pre><code>##         acc sens      spec ppv       auc
+## 1 0.7631868    0 0.9833333 NaN 0.5758314</code></pre>
+<p>The LASSO accuracy increased slightly from 0.733 to 0.763. However, only the predictor variable CHE was retained and the LASSO matrix shows 0… In fact, the sensitivity is now 0. The AUC decreased only slight, but it is still a poor model for containment.</p>
+<p>For further statistical analyses, containment criterion should be modified, only countries with a lower limit of confirmed cases should be included, and the merged dataset should not have any missing values for predictor variables (since the entire country would be omitted for a single NA).</p>
+<pre><code>## R version 4.0.0 (2020-04-24)
+## Platform: x86_64-w64-mingw32/x64 (64-bit)
+## Running under: Windows 10 x64 (build 17763)
+## 
+## Matrix products: default
+## 
+## locale:
+## [1] LC_COLLATE=English_United States.1252 
+## [2] LC_CTYPE=English_United States.1252   
+## [3] LC_MONETARY=English_United States.1252
+## [4] LC_NUMERIC=C                          
+## [5] LC_TIME=English_United States.1252    
+## 
+## attached base packages:
+## [1] stats     graphics  grDevices utils     datasets  methods   base     
+## 
+## other attached packages:
+##  [1] glmnet_3.0-2    Matrix_1.2-18   plotROC_2.2.1   sandwich_2.5-1 
+##  [5] lmtest_0.9-37   zoo_1.8-8       readxl_1.3.1    forcats_0.5.0  
+##  [9] stringr_1.4.0   dplyr_0.8.5     purrr_0.3.4     readr_1.3.1    
+## [13] tidyr_1.0.2     tibble_3.0.1    ggplot2_3.3.0   tidyverse_1.3.0
+## [17] knitr_1.28     
+## 
+## loaded via a namespace (and not attached):
+##  [1] Rcpp_1.0.4.6     lubridate_1.7.8  lattice_0.20-41  foreach_1.5.0   
+##  [5] assertthat_0.2.1 digest_0.6.25    utf8_1.1.4       R6_2.4.1        
+##  [9] cellranger_1.1.0 plyr_1.8.6       backports_1.1.6  reprex_0.3.0    
+## [13] evaluate_0.14    httr_1.4.1       blogdown_0.18    pillar_1.4.3    
+## [17] rlang_0.4.6      rstudioapi_0.11  rmarkdown_2.1    labeling_0.3    
+## [21] munsell_0.5.0    broom_0.5.6      compiler_4.0.0   modelr_0.1.7    
+## [25] xfun_0.13        pkgconfig_2.0.3  shape_1.4.4      htmltools_0.4.0 
+## [29] tidyselect_1.0.0 bookdown_0.18    codetools_0.2-16 fansi_0.4.1     
+## [33] crayon_1.3.4     dbplyr_1.4.3     withr_2.2.0      MASS_7.3-51.5   
+## [37] grid_4.0.0       nlme_3.1-147     jsonlite_1.6.1   gtable_0.3.0    
+## [41] lifecycle_0.2.0  DBI_1.1.0        magrittr_1.5     scales_1.1.0    
+## [45] cli_2.0.2        stringi_1.4.6    farver_2.0.3     fs_1.4.1        
+## [49] xml2_1.3.2       ellipsis_0.3.0   generics_0.0.2   vctrs_0.2.4     
+## [53] iterators_1.0.12 tools_4.0.0      glue_1.4.0       hms_0.5.3       
+## [57] yaml_2.2.1       colorspace_1.4-1 rvest_0.3.5      isoband_0.2.1   
+## [61] haven_2.2.0</code></pre>
+<pre><code>## [1] &quot;2020-05-13 19:15:47 CDT&quot;</code></pre>
+<pre><code>##           sysname           release           version          nodename 
+##         &quot;Windows&quot;          &quot;10 x64&quot;     &quot;build 17763&quot; &quot;DESKTOP-51N65JI&quot; 
+##           machine             login              user    effective_user 
+##          &quot;x86-64&quot;    &quot;Victor Chien&quot;    &quot;Victor Chien&quot;    &quot;Victor Chien&quot;</code></pre>
+<p>Note that the <code>echo = FALSE</code> parameter was added to the code chunk to prevent printing of the R code that generated the plot.</p>
