@@ -1,0 +1,46 @@
+---
+title: Python and R talk to each other!
+author: Victor Chien
+date: '2020-05-15'
+slug: python-and-r-talk-to-each-other
+categories: []
+tags: []
+description: ''
+---
+
+
+
+<p><img src="/blog/2020-05-15-python-and-r-talk-to-each-other_files/Funny.jpg" /></p>
+<p>We can use python to extract numbers using a regular expression.</p>
+<pre class="python"><code>#python
+import re
+import pandas as pd
+import numpy as np
+
+string1 = &quot;Hello I&#39;d like 3 dozen eggs, 10 pounds of flour, and 2 gallons of milk.&quot;
+
+a = re.findall(&quot;\d+&quot;,string1)</code></pre>
+<p>Supposedly we can loop this through many strings and extract a dataframe of numbers, but I was having trouble accessing my dataframe in the global environment.</p>
+<p><img src="/blog/2020-05-15-python-and-r-talk-to-each-other_files/zoidberg.jpg" /></p>
+<p>Now we can reference the python variable in r and edit the dataframe in r!</p>
+<pre class="r"><code>#r
+library(reticulate)
+library(tidyverse)</code></pre>
+<pre><code>## -- Attaching packages -------------------------------------------------------------------------------------------------------- tidyverse 1.3.0 --</code></pre>
+<pre><code>## v ggplot2 3.3.0     v purrr   0.3.4
+## v tibble  3.0.1     v dplyr   0.8.5
+## v tidyr   1.0.2     v stringr 1.4.0
+## v readr   1.3.1     v forcats 0.5.0</code></pre>
+<pre><code>## -- Conflicts ----------------------------------------------------------------------------------------------------------- tidyverse_conflicts() --
+## x dplyr::filter() masks stats::filter()
+## x dplyr::lag()    masks stats::lag()</code></pre>
+<pre class="r"><code>df1 &lt;- py$a %&gt;% lapply(as.numeric) %&gt;% as.data.frame()
+rownames(df1) &lt;- c()
+colnames(df1) &lt;- c(&#39;eggs&#39;,&#39;flour&#39;,&#39;milk&#39;)
+df1 &lt;- df1 %&gt;% mutate(cost = eggs*1.93 + flour*0.33 + milk*3.48)
+
+df1</code></pre>
+<pre><code>##   eggs flour milk  cost
+## 1    3    10    2 16.05</code></pre>
+<p>The cost of one customer’s goods are printed.
+This is sort of a bad example because this can all easily be done in a python dataframe. OR a matrix of costs can be multiplied with a matrix of the number of each item.</p>

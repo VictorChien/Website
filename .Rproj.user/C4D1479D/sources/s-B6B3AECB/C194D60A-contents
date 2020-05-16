@@ -1,7 +1,0 @@
-install.packages("blogdown")
-blogdown::install_hugo()
-blogdown::new_site(theme="nurlansu/hugo-sustain") #create template folder
-#Other themes: https://themes.gohugo.io/
-#Needs to have blog option
-
-

@@ -21,7 +21,6 @@ theme = "hugo-sustain"
 
 [params.social]
   Email         = "victor.chien10@gmail.com"
-  Twitter       = "username"
   LinkedIn      = "victor-chien-05343b147"
 
 
@@ -40,4 +39,4 @@ theme = "hugo-sustain"
   name = "resume"
   identifier = "resume"
   weight = 300
-  url = "/resume/"
+  url = "/Victor_Chien_Resume_Jan2020.pdf"

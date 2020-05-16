@@ -1,0 +1,52 @@
+---
+title: Python and R talk to each other!
+author: Victor Chien
+date: '2020-05-15'
+slug: python-and-r-talk-to-each-other
+categories: []
+tags: []
+description: ''
+---
+
+![](/blog/2020-05-15-python-and-r-talk-to-each-other_files/Funny.jpg)
+
+
+We can use python to extract numbers using a regular expression.
+```{python}
+#python
+import re
+import pandas as pd
+import numpy as np
+
+string1 = "Hello I'd like 3 dozen eggs, 10 pounds of flour, and 2 gallons of milk."
+
+a = re.findall("\d+",string1)
+
+```
+
+Supposedly we can loop this through many strings and extract a dataframe of numbers, but I was having trouble accessing my dataframe in the global environment.
+
+
+![](/blog/2020-05-15-python-and-r-talk-to-each-other_files/zoidberg.jpg)
+
+Now we can reference the python variable in r and edit the dataframe in r!
+```{r}
+#r
+library(reticulate)
+library(tidyverse)
+
+df1 <- py$a %>% lapply(as.numeric) %>% as.data.frame()
+rownames(df1) <- c()
+colnames(df1) <- c('eggs','flour','milk')
+df1 <- df1 %>% mutate(cost = eggs*1.93 + flour*0.33 + milk*3.48)
+
+df1
+
+```
+
+The cost of one customer's goods are printed.
+This is sort of a bad example because this can all easily be done in a python dataframe. OR a matrix of costs can be multiplied with a matrix of the number of each item.
+
+```{r pressure, echo=FALSE}
+
+```
